@@ -2,6 +2,10 @@
 #include "dxut\cmmn.h"
 #include "DXWindow.h"
 
+#define SOIL
+#ifdef SOIL
+#include "SOIL.h"
+#endif
 
 struct descriptor_heap {
 	ID3D12DescriptorHeap* heap;
@@ -49,8 +53,62 @@ struct descriptor_heap {
 	}
 
 	~descriptor_heap() {
+		if (heap == nullptr) return;
 		auto v = heap->Release();
 		heap = nullptr;
+	}
+};
+
+struct root_parameterh {
+	inline static CD3DX12_ROOT_PARAMETER constants(UINT num32BitValues,
+		UINT shaderRegister,
+		UINT registerSpace = 0,
+		D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL)
+	{
+		CD3DX12_ROOT_PARAMETER rp{};
+		rp.InitAsConstants(num32BitValues, shaderRegister, registerSpace, visibility);
+		return rp;
+	}
+
+	inline static CD3DX12_ROOT_PARAMETER descriptor_table(vector<CD3DX12_DESCRIPTOR_RANGE> descr,
+		D3D12_SHADER_VISIBILITY visib = D3D12_SHADER_VISIBILITY_ALL)
+	{
+		CD3DX12_ROOT_PARAMETER rp{};
+		D3D12_DESCRIPTOR_RANGE* dsrd = new D3D12_DESCRIPTOR_RANGE[descr.size()]; //this gets leaked
+		memcpy(dsrd, descr.data(), sizeof(D3D12_DESCRIPTOR_RANGE)*descr.size());
+		rp.InitAsDescriptorTable(descr.size(), dsrd, visib);
+		return rp;
+	}
+
+	inline static CD3DX12_ROOT_PARAMETER descriptor_table(D3D12_DESCRIPTOR_RANGE_TYPE rangeType,
+		UINT numDescriptors,
+		UINT baseShaderRegister,
+		UINT registerSpace = 0,
+		UINT offsetInDescriptorsFromTableStart =
+		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
+		D3D12_SHADER_VISIBILITY visib = D3D12_SHADER_VISIBILITY_ALL)
+	{
+		return descriptor_table({
+			descriptor_range(rangeType, numDescriptors, baseShaderRegister, registerSpace,
+			offsetInDescriptorsFromTableStart)
+		}, visib);
+		/*CD3DX12_ROOT_PARAMETER rp{};
+		CD3DX12_DESCRIPTOR_RANGE* dr = new CD3DX12_DESCRIPTOR_RANGE;
+		dr->Init(rangeType, numDescriptors, baseShaderRegister, registerSpace, offsetInDescriptorsFromTableStart);
+		rp.InitAsDescriptorTable(1, dr, visib);
+		return rp;*/
+	}
+
+	inline static CD3DX12_DESCRIPTOR_RANGE descriptor_range(D3D12_DESCRIPTOR_RANGE_TYPE rangeType,
+		UINT numDescriptors,
+		UINT baseShaderRegister,
+		UINT registerSpace = 0,
+		UINT offsetInDescriptorsFromTableStart =
+		D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND)
+	{
+		CD3DX12_DESCRIPTOR_RANGE dr{};
+		dr.Init(rangeType, numDescriptors, baseShaderRegister, registerSpace, offsetInDescriptorsFromTableStart);
+		return dr;
 	}
 };
 
@@ -142,7 +200,7 @@ public:
 
 			frameIndex = swapChain->GetCurrentBackBufferIndex();
 
-			rtvHeap = make_unique<descriptor_heap>(device, FrameCount + 1, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, false);
+			rtvHeap = make_unique<descriptor_heap>(device, FrameCount, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, false);
 			dsvHeap = make_unique<descriptor_heap>(device, 1, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, false);
 				
 
@@ -248,6 +306,12 @@ public:
 		cmdlist->RSSetScissorRects(1, &scissorRect);
 	}
 
+	inline void resource_barrier(ComPtr<ID3D12GraphicsCommandList> cmdlist,
+		const vector<CD3DX12_RESOURCE_BARRIER>& tr) 
+	{
+		cmdlist->ResourceBarrier(tr.size(), tr.data());
+	}
+
 	void create_depth_stencil(uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE hndl, ComPtr<ID3D12Resource>& res, DXGI_FORMAT fmt = DXGI_FORMAT_D32_FLOAT) {
 		D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
 		depthStencilDesc.Format = fmt;
@@ -296,63 +360,10 @@ public:
 	}
 
 
-
-	struct root_parameterh {
-		inline static CD3DX12_ROOT_PARAMETER constants(UINT num32BitValues,
-			UINT shaderRegister,
-			UINT registerSpace = 0,
-			D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL) 
-		{
-			CD3DX12_ROOT_PARAMETER rp{};
-			rp.InitAsConstants(num32BitValues, shaderRegister, registerSpace, visibility);
-			return rp;
-		}
-
-		inline static CD3DX12_ROOT_PARAMETER descriptor_table(vector<CD3DX12_DESCRIPTOR_RANGE> descr, 
-			D3D12_SHADER_VISIBILITY visib = D3D12_SHADER_VISIBILITY_ALL) 
-		{
-			CD3DX12_ROOT_PARAMETER rp{};
-			D3D12_DESCRIPTOR_RANGE* dsrd = new D3D12_DESCRIPTOR_RANGE[descr.size()]; //this gets leaked
-			memcpy(dsrd, descr.data(), sizeof(D3D12_DESCRIPTOR_RANGE)*descr.size());
-			rp.InitAsDescriptorTable(descr.size(), dsrd, visib);
-			return rp;
-		}
-
-		inline static CD3DX12_ROOT_PARAMETER descriptor_table(D3D12_DESCRIPTOR_RANGE_TYPE rangeType,
-			UINT numDescriptors,
-			UINT baseShaderRegister,
-			UINT registerSpace = 0,
-			UINT offsetInDescriptorsFromTableStart =
-			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND,
-			D3D12_SHADER_VISIBILITY visib = D3D12_SHADER_VISIBILITY_ALL)
-		{
-			return descriptor_table({
-				descriptor_range(rangeType, numDescriptors, baseShaderRegister, registerSpace,
-					offsetInDescriptorsFromTableStart)
-			}, visib);
-			/*CD3DX12_ROOT_PARAMETER rp{};
-			CD3DX12_DESCRIPTOR_RANGE* dr = new CD3DX12_DESCRIPTOR_RANGE;
-			dr->Init(rangeType, numDescriptors, baseShaderRegister, registerSpace, offsetInDescriptorsFromTableStart);
-			rp.InitAsDescriptorTable(1, dr, visib);
-			return rp;*/
-		}
-
-		inline static CD3DX12_DESCRIPTOR_RANGE descriptor_range(D3D12_DESCRIPTOR_RANGE_TYPE rangeType,
-			UINT numDescriptors,
-			UINT baseShaderRegister,
-			UINT registerSpace = 0,
-			UINT offsetInDescriptorsFromTableStart =
-			D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND) 
-		{
-			CD3DX12_DESCRIPTOR_RANGE dr{};
-			dr.Init(rangeType, numDescriptors, baseShaderRegister, registerSpace, offsetInDescriptorsFromTableStart);
-			return dr;
-		}
-	};
-
 	void create_root_signature(vector<CD3DX12_ROOT_PARAMETER> paras,
 		vector<CD3DX12_STATIC_SAMPLER_DESC> static_samps,
 		ComPtr<ID3D12RootSignature>& rs, bool free_paras_ptrs = false,
+		const wchar_t* name = nullptr,
 		D3D12_ROOT_SIGNATURE_FLAGS rsf = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT)
 	{
 		D3D12_ROOT_SIGNATURE_DESC rsd;
@@ -369,6 +380,8 @@ public:
 		for (auto& p : paras) {
 			if(p.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE && p.DescriptorTable.pDescriptorRanges) delete p.DescriptorTable.pDescriptorRanges;
 		}
+
+		if (name) rs->SetName(name);
 	}
 
 	void execute_command_lists(const vector<ComPtr<ID3D12GraphicsCommandList>>& cmdlsts) {
@@ -423,4 +436,63 @@ public:
 			if (u != nullptr) u.Reset();
 		upload_pool.clear();
 	}
+
+#ifdef SOIL
+	map<string, ComPtr<ID3D12Resource>> texture_cashe;
+	inline void load_texture(ComPtr<ID3D12GraphicsCommandList> cmdlist,
+		const string& path, ComPtr<ID3D12Resource>& tex) {
+		auto ctx = texture_cashe.find(path);
+		if (ctx != texture_cashe.end()) {
+			tex = ctx->second;
+			return;
+		}
+
+		byte* data; uint32_t size;
+		ReadDataFromFile(s2ws(path).c_str(), &data, &size);
+
+		D3D12_RESOURCE_DESC rsd = {}; int c;
+		D3D12_SUBRESOURCE_DATA txd = {};
+		txd.pData = SOIL_load_image_from_memory(data, size, (int*)&rsd.Width, (int*)&rsd.Height, &c, SOIL_LOAD_RGBA);
+		
+
+		rsd.MipLevels = 1;
+		/*switch (c) {
+		case 1: rsd.Format = DXGI_FORMAT_R8_UINT; break;
+		case 2: rsd.Format = DXGI_FORMAT_R8G8_UINT; break;
+		case 3: case 4: rsd.Format = DXGI_FORMAT_R8G8B8A8_UINT; break;
+		}*/
+		rsd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		rsd.Flags = D3D12_RESOURCE_FLAG_NONE;
+		rsd.DepthOrArraySize = 1;
+		rsd.SampleDesc.Count = 1;
+		rsd.SampleDesc.Quality = 1;
+		rsd.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+
+		chk(device->CreateCommittedResource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+			D3D12_HEAP_FLAG_NONE,
+			&rsd, D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+			IID_PPV_ARGS(&tex)));
+		const uint32_t subres_cnt = 1;
+		const uint64_t uplbuf_siz = GetRequiredIntermediateSize(tex.Get(), 0, subres_cnt);
+
+		auto txupl = new_upload_resource(
+			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+			D3D12_HEAP_FLAG_NONE,
+			&CD3DX12_RESOURCE_DESC::Buffer(uplbuf_siz),
+			D3D12_RESOURCE_STATE_GENERIC_READ);
+
+		txd.RowPitch = rsd.Width * c;
+		txd.SlicePitch = rsd.Width * rsd.Height * c;
+
+		UpdateSubresources(cmdlist.Get(), tex.Get(), txupl.Get(), 0, 0, 1, &txd);
+		cmdlist->ResourceBarrier(1,
+			&CD3DX12_RESOURCE_BARRIER::Transition(tex.Get(),
+				D3D12_RESOURCE_STATE_COPY_DEST,
+				D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
+		texture_cashe[path] = tex;
+	}
+#endif
+
 };

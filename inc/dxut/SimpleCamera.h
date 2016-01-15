@@ -29,7 +29,7 @@ public:
 	void OnKeyUp(WPARAM key);
 
 	XMFLOAT3 GetPosition() { return position; }
-private:
+
 	void Reset();
 
 	struct KeysPressed

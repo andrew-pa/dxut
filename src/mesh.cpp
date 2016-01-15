@@ -224,3 +224,4 @@ void generate_plane_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, XM
 	reverse(indices.begin(), indices.end());
 
 }
+
