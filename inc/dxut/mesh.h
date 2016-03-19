@@ -39,6 +39,9 @@ struct mesh {
 	static unique_ptr<mesh> create_full_screen_quad(DXDevice* dv,
 		ComPtr<ID3D12GraphicsCommandList> commandList, XMFLOAT2 ext = XMFLOAT2(1.f, 1.f));
 
+	static void create_instance_buffer(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> cmdlist,
+		void* data, size_t total_data_size, size_t stride, D3D12_VERTEX_BUFFER_VIEW* vbv, ComPtr<ID3D12Resource>& res);
+
 	void draw(ComPtr<ID3D12GraphicsCommandList> cmdlist) const {
 		cmdlist->IASetVertexBuffers(0, 1, &vbv);
 		cmdlist->IASetIndexBuffer(&ibv);

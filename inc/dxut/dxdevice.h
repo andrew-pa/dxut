@@ -112,6 +112,8 @@ struct root_parameterh {
 	}
 };
 
+const float color_black[] = { 0.f,0.f,0.f,0.f };
+
 class DXDevice {
 public:
 	static const UINT FrameCount = 3;
@@ -135,7 +137,7 @@ public:
 	DXDevice() : frameIndex(0), viewport(), scissorRect(), frameCounter(0), fenceValue(0), currentFenceValue(0) {}
 
 
-	void init_d3d(DXWindow* win) {
+	void init_d3d(DXWindow* win, uint32_t msaa_lvl = 1, bool readableDepth = false) {
 		#ifdef _DEBUG
 				// Enable the D3D12 debug layer.
 			{
@@ -186,7 +188,8 @@ public:
 			swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 			swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 			swapChainDesc.OutputWindow = win->hwnd;
-			swapChainDesc.SampleDesc.Count = 1;
+			swapChainDesc.SampleDesc.Count = msaa_lvl;
+			swapChainDesc.SampleDesc.Quality = msaa_lvl > 1 ? 1 : 0;
 			swapChainDesc.Windowed = TRUE;
 
 			ComPtr<IDXGISwapChain> xswapChain;
@@ -207,7 +210,7 @@ public:
 			D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
 			depthStencilDesc.Format = DXGI_FORMAT_D32_FLOAT;
 			depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
-			depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
+			depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE; 
 
 			D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
 			depthOptimizedClearValue.Format = DXGI_FORMAT_D32_FLOAT;
@@ -217,8 +220,11 @@ public:
 			ThrowIfFailed(device->CreateCommittedResource(
 				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 				D3D12_HEAP_FLAG_NONE,
-				&CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, win->width, win->height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
-				D3D12_RESOURCE_STATE_DEPTH_WRITE,
+				&CD3DX12_RESOURCE_DESC::Tex2D(
+					readableDepth ? DXGI_FORMAT_R32_TYPELESS : DXGI_FORMAT_D32_FLOAT,
+					win->width, win->height, 1, 0, 1, 0,
+					D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+				readableDepth ? D3D12_RESOURCE_STATE_DEPTH_READ : D3D12_RESOURCE_STATE_DEPTH_WRITE,
 				&depthOptimizedClearValue,
 				IID_PPV_ARGS(&depthStencil)
 				));
@@ -270,6 +276,10 @@ public:
 	void next_frame() {
 		chk(swapChain->Present(1, 0));
 		frameIndex = swapChain->GetCurrentBackBufferIndex();
+		signal_queue();
+	}
+
+	void signal_queue() {
 		currentFenceValue = fenceValue;
 		chk(commandQueue->Signal(fence.Get(), fenceValue));
 		fenceValue++;
@@ -306,6 +316,24 @@ public:
 		cmdlist->RSSetScissorRects(1, &scissorRect);
 	}
 
+	inline void start_render_to_backbuffer(ComPtr<ID3D12GraphicsCommandList> cmdlist, bool clearR = true, bool clearD = true) {
+		set_default_viewport(cmdlist);
+
+		cmdlist->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+			renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+
+		cmdlist->OMSetRenderTargets(1, &rtvHeap->cpu_handle(frameIndex), false,
+			&dsvHeap->cpu_handle());
+
+		if(clearR) cmdlist->ClearRenderTargetView(rtvHeap->cpu_handle(frameIndex), color_black, 0, nullptr);
+		if(clearD) cmdlist->ClearDepthStencilView(dsvHeap->cpu_handle(), D3D12_CLEAR_FLAG_DEPTH, 1.f, 0, 0, nullptr);
+	}
+
+	inline void finish_render_to_backbuffer(ComPtr<ID3D12GraphicsCommandList> cmdlist) {
+		cmdlist->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+			renderTargets[frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
+	}
+
 	inline void resource_barrier(ComPtr<ID3D12GraphicsCommandList> cmdlist,
 		const vector<CD3DX12_RESOURCE_BARRIER>& tr) 
 	{
@@ -339,8 +367,8 @@ public:
 
 	template <typename Tcb, size_t Tcb_s = sizeof(Tcb)>
 	void create_constant_buffer(D3D12_HEAP_PROPERTIES* uplhepprop, descriptor_heap& h,
-		ComPtr<ID3D12Resource>& cbr, Tcb** cb, uint32_t idx, size_t num_bufs = 1) {
-		CD3DX12_RESOURCE_DESC cbd = CD3DX12_RESOURCE_DESC::Buffer(Tcb_s * num_bufs);
+		ComPtr<ID3D12Resource>& cbr, Tcb** cb, uint32_t idx, size_t num_bufs = 1, D3D12_RESOURCE_FLAGS additionalFlags = D3D12_RESOURCE_FLAG_NONE) {
+		CD3DX12_RESOURCE_DESC cbd = CD3DX12_RESOURCE_DESC::Buffer(Tcb_s * num_bufs, additionalFlags);
 		chk(device->CreateCommittedResource(uplhepprop,
 			D3D12_HEAP_FLAG_NONE,
 			&cbd,
@@ -496,3 +524,118 @@ public:
 #endif
 
 };
+
+struct pass {
+	ComPtr<ID3D12RootSignature> root_sig;
+	ComPtr<ID3D12PipelineState> pipeline;
+	bool is_compute;
+
+	pass() : root_sig(nullptr), pipeline(nullptr), is_compute(false) {}
+	pass(ComPtr<ID3D12RootSignature> rs, ComPtr<ID3D12PipelineState> ps, bool compute = false)
+		: root_sig(rs), pipeline(ps), is_compute(compute) { }
+
+	pass(DXDevice* dv,
+		vector<CD3DX12_ROOT_PARAMETER> rs_params, vector<CD3DX12_STATIC_SAMPLER_DESC> stat_smps,
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC pdsc,
+		wstring name = wstring(),
+		D3D12_ROOT_SIGNATURE_FLAGS rsf = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT)
+		: is_compute(false)
+	{
+		dv->create_root_signature(rs_params, stat_smps, root_sig, true,
+			(name + wstring(L" Root Signature")).c_str(), rsf);
+		pdsc.pRootSignature = root_sig.Get();
+		chk(dv->device->CreateGraphicsPipelineState(&pdsc, IID_PPV_ARGS(&pipeline)));
+		pipeline->SetName((name + wstring(L" Pipeline")).c_str());
+	}
+
+	pass(DXDevice* dv,
+		vector<CD3DX12_ROOT_PARAMETER> rs_params, vector<CD3DX12_STATIC_SAMPLER_DESC> stat_smps,
+		D3D12_COMPUTE_PIPELINE_STATE_DESC pdsc,
+		wstring name = wstring(),
+		D3D12_ROOT_SIGNATURE_FLAGS rsf = D3D12_ROOT_SIGNATURE_FLAG_NONE)
+		: is_compute(true)
+	{
+		dv->create_root_signature(rs_params, stat_smps, root_sig, true,
+			(name + wstring(L" Root Signature")).c_str(), rsf);
+		pdsc.pRootSignature = root_sig.Get();
+		chk(dv->device->CreateComputePipelineState(&pdsc, IID_PPV_ARGS(&pipeline)));
+		pipeline->SetName((name + wstring(L" Pipeline")).c_str());
+	}
+
+	pass(DXDevice* dv, ComPtr<ID3D12RootSignature> exisitingRS,
+		D3D12_GRAPHICS_PIPELINE_STATE_DESC pdsc,
+		wstring name = wstring()) :
+		root_sig(exisitingRS), is_compute(false)
+	{
+		pdsc.pRootSignature = exisitingRS.Get();
+		chk(dv->device->CreateGraphicsPipelineState(&pdsc, IID_PPV_ARGS(&pipeline)));
+		pipeline->SetName((name + wstring(L" Pipeline")).c_str());
+	}
+
+	void apply(ComPtr<ID3D12GraphicsCommandList> cmdlist) {
+		cmdlist->SetPipelineState(pipeline.Get());
+		if (is_compute)
+			cmdlist->SetComputeRootSignature(root_sig.Get());
+		else cmdlist->SetGraphicsRootSignature(root_sig.Get());
+	}
+};
+
+struct DXCompute {
+	DXDevice* dv;
+	ComPtr<ID3D12CommandAllocator> commandAllocator;
+	ComPtr<ID3D12CommandQueue> commandQueue;
+	ComPtr<ID3D12GraphicsCommandList> commandList;
+
+	ComPtr<ID3D12Fence> fence;
+
+	DXCompute() {}
+
+	void init(DXDevice* __dv) {
+		dv = __dv;
+		dv->device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_COMPUTE,
+			IID_PPV_ARGS(&commandAllocator));
+		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
+		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_COMPUTE;
+
+		chk(dv->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&commandQueue)));
+
+		commandList = dv->create_command_list(D3D12_COMMAND_LIST_TYPE_COMPUTE, nullptr,
+			commandAllocator);
+		commandList->Close();
+
+		chk(dv->device->CreateFence(
+			dv->fenceValue, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)));
+	}
+
+	void destroy() {
+		wait_for_gpu();
+		dv = nullptr;
+		commandQueue.Reset();
+		commandAllocator.Reset();
+		commandList.Reset();
+		fence.Reset();
+	}
+
+	void reset(ComPtr<ID3D12PipelineState> ps = nullptr) {
+		chk(commandAllocator->Reset());
+		chk(commandList->Reset(commandAllocator.Get(), ps.Get()));
+	}
+	void reset(const pass& p) {
+		chk(commandAllocator->Reset());
+		chk(commandList->Reset(commandAllocator.Get(), p.pipeline.Get()));
+		commandList->SetComputeRootSignature(p.root_sig.Get());
+	}
+
+	void execute(ComPtr<ID3D12CommandList> cmdl = nullptr) {
+		if(cmdl == nullptr) cmdl = commandList;
+		ID3D12CommandList* cmdlists[] = { cmdl.Get() };
+		commandQueue->ExecuteCommandLists(_countof(cmdlists), cmdlists);
+		chk(commandQueue->Signal(fence.Get(), dv->fenceValue));
+	}
+
+	void wait_for_gpu() {
+		chk(commandQueue->Wait(fence.Get(), dv->fenceValue));
+	}
+};
+

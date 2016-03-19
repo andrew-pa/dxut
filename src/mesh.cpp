@@ -67,6 +67,35 @@ mesh::mesh(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList,
 	
 }
 
+
+void mesh::create_instance_buffer(DXDevice * dv, ComPtr<ID3D12GraphicsCommandList> cmdlist, 
+	void * data, size_t total_data_size, size_t stride, D3D12_VERTEX_BUFFER_VIEW * vbv, ComPtr<ID3D12Resource>& res) {
+
+	chk(dv->device->CreateCommittedResource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(total_data_size),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&res)));
+	auto bufup = dv->new_upload_resource(&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(total_data_size),
+		D3D12_RESOURCE_STATE_GENERIC_READ);
+	D3D12_SUBRESOURCE_DATA srd = {};
+	srd.pData = data;
+	srd.RowPitch = total_data_size;
+	srd.SlicePitch = srd.RowPitch;
+
+	UpdateSubresources<1>(cmdlist.Get(), res.Get(), bufup.Get(), 0, 0, 1, &srd);
+
+	vbv->BufferLocation = res->GetGPUVirtualAddress();
+	vbv->SizeInBytes = total_data_size;
+	vbv->StrideInBytes = stride;
+
+	cmdlist->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(res.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
+}
+
 mesh::mesh(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList,
 	const vector<vertex>& vertices, const vector<uint32_t>& indices)
 	: mesh(dv, commandList, 
@@ -178,6 +207,7 @@ unique_ptr<mesh> mesh::create_full_screen_quad(DXDevice* dv, ComPtr<ID3D12Graphi
 	return make_unique<mesh>(
 		dv, commandList, (void*)v.data(), v.size()*sizeof(XMFLOAT2), sizeof(XMFLOAT2), (void*)i.data(), i.size()*sizeof(uint32_t), i.size());
 }
+
 
 void generate_plane_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, XMFLOAT2 dims, XMFLOAT2 div, XMFLOAT3 norm)
 {
