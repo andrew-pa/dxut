@@ -103,9 +103,67 @@ mesh::mesh(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList,
 		(void*)indices.data(),  sizeof(uint32_t)*indices.size(), indices.size())
 {}
 
+mesh_data generate_sphere_mesh(float radius, uint32_t Islices, uint32_t Istacks) {
+	vector<vertex> vertices; vector<uint32_t> indices;
+	vertices.push_back(vertex(0.f, radius, 0.f, 0.f, 1.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f)); //top vertex
 
+	auto slices = (float)Islices, stacks = (float)Istacks;
 
-void generate_cube_mesh(vector<vertex>& v, vector<uint32_t>& i, XMFLOAT3 extents) {
+	float dphi = XM_PI/stacks;
+	float dtheta = XM_2PI/slices;
+
+	for(uint32_t i = 1; i <= stacks-1; ++i) {
+		float phi = i*dphi;
+		for(uint32_t j = 0; j <= slices; ++j) {
+			float theta = j*dtheta;
+			auto P = XMVectorSet(
+				radius*sinf(phi)*cosf(theta),
+				radius*cosf(phi),
+				radius*sinf(phi)*sinf(theta), 1.f);
+			auto T = XMVectorSet(
+				-radius*sinf(phi)*sinf(theta),
+				0.f,
+				radius*sinf(phi)*cosf(theta), 0.f);
+			vertices.push_back(vertex(P, XMVector3Normalize(P), XMVectorSet(theta/XM_2PI, phi/XM_PI,0.f,0.f), XMVector3Normalize(T)));
+		}
+	}
+
+	vertices.push_back(vertex(0.f, -radius, 0.f, 0.f, -1.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f)); //top vertex
+	
+	for(uint32_t i = 1; i <= slices; ++i) {
+		indices.push_back(0);
+		indices.push_back(i+1);
+		indices.push_back(i);
+	}
+
+	uint32_t baseIndex = 1;
+	uint32_t ringVertexCount = slices + 1;
+	for(uint32_t i = 0; i < stacks-2; ++i) {
+		for(uint32_t j = 0; j < slices; ++j) {
+			indices.push_back(baseIndex + i*ringVertexCount + j);
+			indices.push_back(baseIndex + i*ringVertexCount + j+1);
+			indices.push_back(baseIndex + (i+1)*ringVertexCount + j);
+
+			indices.push_back(baseIndex + (i+1)*ringVertexCount + j);
+			indices.push_back(baseIndex + i*ringVertexCount + j+1);
+			indices.push_back(baseIndex + (i+1)*ringVertexCount + j+1);
+		}
+	}
+
+	uint32_t spix = (uint32_t)vertices.size()-1;
+	baseIndex = spix - ringVertexCount;
+	
+	for(uint32_t i = 0; i < slices; ++i) {
+		indices.push_back(spix);
+		indices.push_back(baseIndex+i);
+		indices.push_back(baseIndex+i+1);
+	}
+
+	return{ vertices,indices };
+}
+
+mesh_data generate_cube_mesh(XMFLOAT3 extents) {
+	vector<vertex> v; vector<uint32_t> i;
 	//vertex* v = new vertex[24];
 	v.resize(24);
 
@@ -176,8 +234,10 @@ void generate_cube_mesh(vector<vertex>& v, vector<uint32_t>& i, XMFLOAT3 extents
 	i[30] = 20; i[31] = 21; i[32] = 22;
 	i[33] = 20; i[34] = 22; i[35] = 23;
 
+	return{ v,i };
 }
-void generate_quad_mesh(vector<vertex>& v, vector<uint32_t>& i, DirectX::XMFLOAT2 extents, bool xz) {
+mesh_data generate_quad_mesh(DirectX::XMFLOAT2 extents, bool xz) {
+	vector<vertex> v; vector<uint32_t> i;
 	v.resize(4);
 	if (xz) {
 		v[0] = vertex(extents.x, 0, extents.y,   0.f, 1.f, 0.f);
@@ -193,6 +253,7 @@ void generate_quad_mesh(vector<vertex>& v, vector<uint32_t>& i, DirectX::XMFLOAT
 	i.resize(6);
 	i[0] = 0; i[1] = 1; i[2] = 2;
 	i[3] = 2; i[4] = 3; i[5] = 0;
+	return{ v,i };
 }
 
 unique_ptr<mesh> mesh::create_full_screen_quad(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList, XMFLOAT2 extents) {
@@ -209,9 +270,9 @@ unique_ptr<mesh> mesh::create_full_screen_quad(DXDevice* dv, ComPtr<ID3D12Graphi
 }
 
 
-void generate_plane_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, XMFLOAT2 dims, XMFLOAT2 div, XMFLOAT3 norm)
+mesh_data generate_plane_mesh(XMFLOAT2 dims, XMFLOAT2 div, XMFLOAT3 norm)
 {
-
+	vector<vertex> vertices; vector<uint32_t> indices;
 	XMVECTOR nw = XMVector3Normalize(XMLoadFloat3(&norm));
 	XMVECTOR t = (fabsf(XMVectorGetX(nw)) > .1 ? XMVectorSet(0, 1, 0, 0) : XMVectorSet(1, 0, 0, 0));
 	XMVECTOR nu = XMVector3Normalize(XMVector3Cross(t, nw));
@@ -252,6 +313,6 @@ void generate_plane_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, XM
 	}
 
 	reverse(indices.begin(), indices.end());
-
+	return{ vertices, indices };
 }
 

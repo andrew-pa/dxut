@@ -21,6 +21,8 @@ struct vertex {
 	{}
 };
 
+typedef tuple<vector<vertex>, vector<uint32_t>> mesh_data;
+
 struct mesh {
 	ComPtr<ID3D12Resource> vbufres, ibufres;
 	D3D12_VERTEX_BUFFER_VIEW vbv;
@@ -34,6 +36,9 @@ struct mesh {
 
 	mesh(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList,
 		const vector<vertex>& vertices, const vector<uint32_t>& indices);
+
+	mesh(DXDevice* dv, ComPtr<ID3D12GraphicsCommandList> commandList, const mesh_data& D)
+		: mesh(dv, commandList, get<0>(D), get<1>(D)) {}
 
 	//this function generates a mesh with only vec2f positions in the vertex buffer
 	static unique_ptr<mesh> create_full_screen_quad(DXDevice* dv,
@@ -56,6 +61,7 @@ struct mesh {
 };
 
 
-void generate_cube_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, DirectX::XMFLOAT3 extents);
-void generate_quad_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, DirectX::XMFLOAT2 extents, bool xz = true);
-void generate_plane_mesh(vector<vertex>& vertices, vector<uint32_t>& indices, XMFLOAT2 dims, XMFLOAT2 div, XMFLOAT3 norm = XMFLOAT3(0, 1, 0));
+mesh_data generate_cube_mesh(DirectX::XMFLOAT3 extents);
+mesh_data generate_sphere_mesh(float radius, uint32_t slices, uint32_t stacks);
+mesh_data generate_quad_mesh(DirectX::XMFLOAT2 extents, bool xz = true);
+mesh_data generate_plane_mesh(XMFLOAT2 dims, XMFLOAT2 div, XMFLOAT3 norm = XMFLOAT3(0, 1, 0));

@@ -2,7 +2,6 @@
 #include "dxut\cmmn.h"
 #include "DXWindow.h"
 
-#define SOIL
 #ifdef SOIL
 #include "SOIL.h"
 #endif
@@ -67,6 +66,14 @@ struct root_parameterh {
 	{
 		CD3DX12_ROOT_PARAMETER rp{};
 		rp.InitAsConstants(num32BitValues, shaderRegister, registerSpace, visibility);
+		return rp;
+	}
+
+	inline static CD3DX12_ROOT_PARAMETER constant_buffer_view(UINT shaderRegister, UINT registerSpace = 0,
+		D3D12_SHADER_VISIBILITY vis = D3D12_SHADER_VISIBILITY_ALL) 
+	{
+		CD3DX12_ROOT_PARAMETER rp;
+		rp.InitAsConstantBufferView(shaderRegister, registerSpace, vis);
 		return rp;
 	}
 
@@ -340,22 +347,24 @@ public:
 		cmdlist->ResourceBarrier(tr.size(), tr.data());
 	}
 
-	void create_depth_stencil(uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE hndl, ComPtr<ID3D12Resource>& res, DXGI_FORMAT fmt = DXGI_FORMAT_D32_FLOAT) {
+	void create_depth_stencil(uint32_t width, uint32_t height, D3D12_CPU_DESCRIPTOR_HANDLE hndl, ComPtr<ID3D12Resource>& res, 
+			DXGI_FORMAT dfmt = DXGI_FORMAT_D32_FLOAT, DXGI_FORMAT tfmt = DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_STATES init_state = D3D12_RESOURCE_STATE_DEPTH_WRITE) 
+	{
 		D3D12_DEPTH_STENCIL_VIEW_DESC depthStencilDesc = {};
-		depthStencilDesc.Format = fmt;
+		depthStencilDesc.Format = dfmt;
 		depthStencilDesc.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
 		depthStencilDesc.Flags = D3D12_DSV_FLAG_NONE;
 
 		D3D12_CLEAR_VALUE depthOptimizedClearValue = {};
-		depthOptimizedClearValue.Format = fmt;
+		depthOptimizedClearValue.Format = dfmt;
 		depthOptimizedClearValue.DepthStencil.Depth = 1.0f;
 		depthOptimizedClearValue.DepthStencil.Stencil = 0;
 
 		ThrowIfFailed(device->CreateCommittedResource(
 			&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 			D3D12_HEAP_FLAG_NONE,
-			&CD3DX12_RESOURCE_DESC::Tex2D(fmt, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
-			D3D12_RESOURCE_STATE_DEPTH_WRITE,
+			&CD3DX12_RESOURCE_DESC::Tex2D(tfmt, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
+			init_state,
 			&depthOptimizedClearValue,
 			IID_PPV_ARGS(&res)
 			));
