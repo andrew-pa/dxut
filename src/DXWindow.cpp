@@ -13,6 +13,8 @@
 #include "dxut\DXWindow.h"
 #include <shellapi.h>
 
+static map<HWND, DXWindow*> windows;
+
 DXWindow::DXWindow(UINT width, UINT height, std::wstring name):
 	width(width),
 	height(height),
@@ -61,7 +63,7 @@ int DXWindow::Run(HINSTANCE hInstance, int nCmdShow)
 		NULL,		// We aren't using menus, NULL.
 		hInstance,
 		NULL);		// We aren't using multiple windows, NULL.
-
+	windows[hwnd] = this;
 	ShowWindow(hwnd, nCmdShow);
 
 	// Initialize the sample. OnInit is defined in each child-implementation of DXWindow.
@@ -75,20 +77,16 @@ int DXWindow::Run(HINSTANCE hInstance, int nCmdShow)
 		if (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE))
 		{
 			TranslateMessage(&msg);
+
+			if (msg.message == WM_WINDOWPOSCHANGED) {
+				
+				break;
+			}
+
 			DispatchMessage(&msg);
 
 			if (msg.message == WM_QUIT)
 				break;
-			/*if (msg.message == WM_WINDOWPOSCHANGED) {
-				OnDestroy();
-				RECT rct;
-				GetClientRect(hwnd, &rct);
-				width = rct.right - rct.left;
-				height = rct.bottom - rct.top;
-				aspectRatio = static_cast<float>(width) / static_cast<float>(height);
-				OnInit();
-				break;
-			}*/
 
 			// Pass events into our sample.
 			OnEvent(msg);
@@ -142,6 +140,16 @@ LRESULT CALLBACK DXWindow::WindowProc(HWND hWnd, UINT message, WPARAM wParam, LP
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		return 0;
+	case WM_SIZE: 
+		/*auto t = windows[hWnd];
+		RECT rct; GetClientRect(hWnd, &rct);
+		auto w = rct.right - rct.left;
+		auto h = rct.bottom - rct.top;
+		if (w != t->width || h != t->height) {
+			t->width = w; t->height = h;
+			t->aspectRatio = static_cast<float>(t->width) / static_cast<float>(t->height);
+		}
+		} */return 0;
 	}
 
 	// Handle any messages the switch statement didn't.
