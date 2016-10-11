@@ -58,6 +58,34 @@ struct descriptor_heap {
 	}
 };
 
+struct graphics_pipeline_state_desc : public D3D12_GRAPHICS_PIPELINE_STATE_DESC {
+	inline void reset() {
+		ZeroMemory(this, sizeof(graphics_pipeline_state_desc));
+		VS = PS = GS = HS = DS = {};
+		RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+		RasterizerState.FrontCounterClockwise = true;
+		BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+		DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+		SampleMask = UINT_MAX;
+		PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+		SampleDesc.Count = 1;
+		NumRenderTargets = 0;
+		DSVFormat = DXGI_FORMAT_UNKNOWN;
+	}
+
+	graphics_pipeline_state_desc() {
+		reset();
+	}
+
+	inline void render_targets(const vector<DXGI_FORMAT>& fmts) {
+		assert(fmts.size() <= 8);
+		ZeroMemory(RTVFormats, 8 * sizeof(DXGI_FORMAT));
+		NumRenderTargets = fmts.size();
+		for (int i = 0; i < fmts.size(); ++i)
+			RTVFormats[i] = fmts[i];
+	}
+};
+
 struct root_parameterh {
 	inline static CD3DX12_ROOT_PARAMETER constants(UINT num32BitValues,
 		UINT shaderRegister,
@@ -69,11 +97,29 @@ struct root_parameterh {
 		return rp;
 	}
 
+	template <typename T>
+	inline static CD3DX12_ROOT_PARAMETER constant(UINT shaderRegister,
+		UINT registerSpace = 0,
+		D3D12_SHADER_VISIBILITY visibility = D3D12_SHADER_VISIBILITY_ALL)
+	{
+		CD3DX12_ROOT_PARAMETER rp{};
+		rp.InitAsConstants(sizeof(T)/sizeof(uint32_t), shaderRegister, registerSpace, visibility);
+		return rp;
+	}
+
 	inline static CD3DX12_ROOT_PARAMETER constant_buffer_view(UINT shaderRegister, UINT registerSpace = 0,
 		D3D12_SHADER_VISIBILITY vis = D3D12_SHADER_VISIBILITY_ALL) 
 	{
 		CD3DX12_ROOT_PARAMETER rp;
 		rp.InitAsConstantBufferView(shaderRegister, registerSpace, vis);
+		return rp;
+	}
+
+	inline static CD3DX12_ROOT_PARAMETER shader_resource_view(UINT shaderRegister, UINT registerSpace = 0,
+		D3D12_SHADER_VISIBILITY vis = D3D12_SHADER_VISIBILITY_ALL)
+	{
+		CD3DX12_ROOT_PARAMETER rp;
+		rp.InitAsShaderResourceView(shaderRegister, registerSpace, vis);
 		return rp;
 	}
 
@@ -118,6 +164,7 @@ struct root_parameterh {
 		return dr;
 	}
 };
+
 
 const float color_black[] = { 0.f,0.f,0.f,0.f };
 
@@ -323,6 +370,33 @@ public:
 		cmdlist->RSSetScissorRects(1, &scissorRect);
 	}
 
+	inline void set_viewport_with_default_scissor_rect(ComPtr<ID3D12GraphicsCommandList> cmdlist,
+		float width, float height, 
+		float min_depth = 0.f, float max_depth = 1.f, 
+		float top_left_x = 0.f, float top_left_y = 0.f) 
+	{
+		D3D12_VIEWPORT vp;
+		vp.Width = width;
+		vp.Height = height;
+		vp.MinDepth = min_depth;
+		vp.MaxDepth = max_depth;
+		vp.TopLeftX = top_left_x;
+		vp.TopLeftY = top_left_y;
+		D3D12_RECT scr = {};
+		scr.left = top_left_x; scr.top = top_left_y;
+		scr.right = width; scr.bottom = height;
+		cmdlist->RSSetViewports(1, &vp);
+		cmdlist->RSSetScissorRects(1, &scr);
+	}
+
+	inline void set_viewport_with_default_scissor_rect(ComPtr<ID3D12GraphicsCommandList> cmdlist, ComPtr<ID3D12Resource> rt,
+		float min_depth = 0.f, float max_depth = 1.f,
+		float top_left_x = 0.f, float top_left_y = 0.f) 
+	{
+		auto d = rt->GetDesc();
+		set_viewport_with_default_scissor_rect(cmdlist, d.Width, d.Height, min_depth, max_depth, top_left_x, top_left_y);
+	}
+
 	inline void start_render_to_backbuffer(ComPtr<ID3D12GraphicsCommandList> cmdlist, bool clearR = true, bool clearD = true) {
 		set_default_viewport(cmdlist);
 
@@ -368,7 +442,7 @@ public:
 			&depthOptimizedClearValue,
 			IID_PPV_ARGS(&res)
 			));
-
+		
 		device->CreateDepthStencilView(res.Get(), &depthStencilDesc, 
 			hndl);
 	}

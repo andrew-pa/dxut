@@ -1,4 +1,5 @@
 #pragma once
+
 #include "dxut\cmmn.h"
 #include "dxut\DXDevice.h"
 using namespace std;
